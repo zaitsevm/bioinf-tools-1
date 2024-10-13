@@ -74,7 +74,7 @@ def select_genes_from_gbk_to_fasta(
     """ This function doesn't work poperly 
     (it returns incorrect genes and their translations 
     - not closest to target genes given as argument), 
-    but i still left this schitso-text in there as an evidence of my struggle
+    but i still left this schizo-text in there as an evidence of my struggle
     Probably need to fix how gene_translation_dictionary is sorted 
     or how i collect before and after genes in the last steps
     """
