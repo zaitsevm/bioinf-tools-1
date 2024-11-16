@@ -6,18 +6,19 @@ Imported modules (not Python build-in):
 filter_fastq_module, dna_rna_tools_module
 """
 
-from add_modules.filter_fastq_module import length_control
-from add_modules.filter_fastq_module import gc_control
+from add_modules.filter_fastq_module import check_length
+from add_modules.filter_fastq_module import check_gc
 from add_modules import dna_rna_tools_module
 from statistics import mean
-
+from add_modules import input_output_module
 
 def filter_fastq(
-    seqs: dict,
+    input_fastq: str,
     gc_bounds: tuple or "num" = (0, 100),
     length_bounds: tuple or "num" = (0, 2**32),
     quality_threshold: "num" = 0,
-) -> dict:
+    output_fastq: str = None
+) -> str:
     """The function filters sequences
     based on the specified values ​​of the sequence length,
     its GC composition, and the threshold value
@@ -29,11 +30,12 @@ def filter_fastq(
     and average read quality is 0.
     If one number is passed to the gc_bounds argument,
     then it is considered that this is the upper bound.
-    The function returns a dictionary with sequences
-    that meet the specified parameters.
+    The function returns strings with filtered sequences
+    that meet the specified parameters into a .
     """
 
-    seqs_checked = {}
+    seqs_filtered = {}
+    seqs = write_as_dict(input_fastq)
     for name, (sequence, quality) in seqs.items():
 
         quality_scores = [(ord(char) - 33) for char in quality]
@@ -41,12 +43,13 @@ def filter_fastq(
 
         if (
             mean(quality_scores) > quality_threshold
-            and length_control(n_seq, length_bounds)
-            and gc_control(sequence, gc_bounds)
+            and check_length(n_seq, length_bounds)
+            and check_gc(sequence, gc_bounds)
         ):
-            seqs_checked[name] = (sequence, quality)
+            seqs_filtered[name] = (sequence, quality)
 
-    return seqs_checked
+    save_filtered_sequences(seqs_filtered, output_fastq)
+    return (f"Filtered sequences saved to {output_path}")
 
 
 def run_dna_rna_tools(*args: list) -> list or str:
@@ -65,21 +68,22 @@ def run_dna_rna_tools(*args: list) -> list or str:
     halts the execution and specifies the erronous sequence.
     """
 
-    *seqs, function = [*args]
+    *seqs, function = args
     n_seqs = []
+    result = []
     for seq in seqs:
         if is_na(seq):
             n_seqs.append(seq)
         else:
             raise ValueError(f"Error: neither DNA nor RNA! Invalid sequence: {seq}")
-    if function == "reverse":
-        result = reverse(*n_seqs)
-    elif function == "transcribe":
-        result = transcribe(*n_seqs)
-    elif function == "complement":
-        result = complement(*n_seqs)
-    elif function == "reverse_complement":
-        res1 = complement(*n_seqs)
-        result = reverse(*res1)
+    for n_seq in n_seqs:
+      if function == "reverse":
+        result.append(reverse(n_seq))
+      elif function == "transcribe":
+        result.append(transcribe(n_seq))
+      elif function == "complement":
+        result.append(complement(n_seq))
+      elif function == "reverse_complement":
+        res1 = complement(n_seq)
+        result.append(reverse(res1))
     return result
-
