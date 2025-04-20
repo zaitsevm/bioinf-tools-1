@@ -2,88 +2,115 @@
 
 This script contains various functions that could be utilised 
 as bioinformatics tools by the user.
-Imported modules (not Python build-in): 
-filter_fastq_module, dna_rna_tools_module
 """
-
-from add_modules.filter_fastq_module import check_length
-from add_modules.filter_fastq_module import check_gc
-from add_modules import dna_rna_tools_module
+import os
+import argparse
+import logging
+from typing import Union, Tuple
 from statistics import mean
-from add_modules import input_output_module
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio.SeqUtils import gc_fraction
+
+
+log_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+logger.addHandler(console_handler)
+
+
+file_handler = logging.FileHandler("filter.log", mode='a')
+file_handler.setFormatter(log_formatter)
+logger.addHandler(file_handler)
+
+
+def check_length(length: int, bounds: Union[Tuple[int, int], int]) -> bool:
+    if isinstance(bounds, tuple):
+        return bounds[0] <= length <= bounds[1]
+    return length <= bounds
+
+
+def check_gc(seq: SeqRecord, bounds: Union[Tuple[float, float], float]) -> bool:
+    gc_content = gc_fraction(seq.seq) * 100
+    if isinstance(bounds, tuple):
+        return bounds[0] <= gc_content <= bounds[1]
+    return gc_content <= bounds
+
+
+def check_quality(seq: SeqRecord, threshold: float) -> bool:
+    qualities = seq.letter_annotations["phred_quality"]
+    return mean(qualities) > threshold
+
 
 def filter_fastq(
     input_fastq: str,
-    gc_bounds: tuple or "num" = (0, 100),
-    length_bounds: tuple or "num" = (0, 2**32),
-    quality_threshold: "num" = 0,
+    gc_bounds: Union[Tuple[float, float], float] = (0, 100),
+    length_bounds: Union[Tuple[int, int], int] = (0, 2**32),
+    quality_threshold: float = 0,
     output_fastq: str = None
 ) -> str:
-    """The function filters sequences
-    based on the specified values ​​of the sequence length,
-    its GC composition, and the threshold value
-    of the average quality of the read.
+    if output_fastq is None:
+        output_fastq = "output_fastq.fastq"
 
-    Sequences that do not meet the specified parameters are discarded.
-    By default: the allowed values ​​for GC composition
-    are within (0,100) range, for sequence length - (0, 2**32)
-    and average read quality is 0.
-    If one number is passed to the gc_bounds argument,
-    then it is considered that this is the upper bound.
-    The function returns strings with filtered sequences
-    that meet the specified parameters into a .
-    """
+    if not os.path.exists(input_fastq):
+        logging.error(f"Input file not found: {input_fastq}")
+        raise FileNotFoundError(f"No such file: {input_fastq}")
 
-    seqs_filtered = {}
-    seqs = write_as_dict(input_fastq)
-    for name, (sequence, quality) in seqs.items():
+    os.makedirs("filtered", exist_ok=True)
+    output_path = os.path.join("filtered", output_fastq)
 
-        quality_scores = [(ord(char) - 33) for char in quality]
-        n_seq = len(sequence)
+    filtered_records = []
 
+    for record in SeqIO.parse(input_fastq, "fastq"):
         if (
-            mean(quality_scores) > quality_threshold
-            and check_length(n_seq, length_bounds)
-            and check_gc(sequence, gc_bounds)
+            check_length(len(record.seq), length_bounds)
+            and check_gc(record, gc_bounds)
+            and check_quality(record, quality_threshold)
         ):
-            seqs_filtered[name] = (sequence, quality)
+            filtered_records.append(record)
 
-    save_filtered_sequences(seqs_filtered, output_fastq)
-    return (f"Filtered sequences saved to {output_path}")
+    SeqIO.write(filtered_records, output_path, "fastq")
+    logging.info(f"{len(filtered_records)} sequences saved to {output_path}")
+    return f"Filtered sequences saved to {output_path}"
 
 
-def run_dna_rna_tools(*args: list) -> list or str:
-    """The function can return complementary, reversed,
-    transcribed and complementary to reversed sequences
-    for an unlimited number of sequences given as arguments.
+def parse_args():
+    parser = argparse.ArgumentParser(description="Filter FASTQ file based on length, GC content, and quality.")
 
-    It accepts as input a list of arguments,
-    the last of which should be the name
-    of one of the 4 following functions: "reverse", "transcribe",
-    "complement", "reverse_complement".
-    Returns a list with new sequences in accordance
-    with the executed function.
-    Raises ValueError if one of the given sequences
-    is not recognised as DNA or RNA,
-    halts the execution and specifies the erronous sequence.
-    """
+    parser.add_argument("-i", "--input", required=True, help="Input FASTQ file")
+    parser.add_argument("-o", "--output", help="Output FASTQ file name (optional, default: output_fastq.fastq)")
 
-    *seqs, function = args
-    n_seqs = []
-    result = []
-    for seq in seqs:
-        if is_na(seq):
-            n_seqs.append(seq)
-        else:
-            raise ValueError(f"Error: neither DNA nor RNA! Invalid sequence: {seq}")
-    for n_seq in n_seqs:
-      if function == "reverse":
-        result.append(reverse(n_seq))
-      elif function == "transcribe":
-        result.append(transcribe(n_seq))
-      elif function == "complement":
-        result.append(complement(n_seq))
-      elif function == "reverse_complement":
-        res1 = complement(n_seq)
-        result.append(reverse(res1))
-    return result
+    parser.add_argument("--gc_bounds", nargs="+", type=float, default=[0, 100],
+                        help="GC content bounds: one value (upper limit) or two values (lower and upper)")
+    parser.add_argument("--length_bounds", nargs="+", type=int, default=[0, 2**32],
+                        help="Sequence length bounds: one value (upper limit) or two values (lower and upper)")
+    parser.add_argument("--quality", type=float, default=0, help="Minimum average quality score")
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    gc_bounds = args.gc_bounds if len(args.gc_bounds) > 1 else args.gc_bounds[0]
+    length_bounds = args.length_bounds if len(args.length_bounds) > 1 else args.length_bounds[0]
+
+    try:
+        result = filter_fastq(
+            input_fastq=args.input,
+            gc_bounds=gc_bounds,
+            length_bounds=length_bounds,
+            quality_threshold=args.quality,
+            output_fastq=args.output
+        )
+        print(result)
+    except FileNotFoundError:
+        pass
+
+
+if __name__ == "__main__":
+    main()
