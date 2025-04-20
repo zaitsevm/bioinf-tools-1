@@ -1,3 +1,6 @@
+## Важно!: дз15 еще не сдано: поэтому тут для проверки дз18 потребуются только файлы `bioinf_tools`, `filter_fastq_test`, `requirements.txt` !!!
+
+***
 # Bioinformatics Tools 1
 
 ## What is it?
